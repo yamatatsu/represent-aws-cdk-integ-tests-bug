@@ -1,21 +1,26 @@
-#!/usr/bin/env node
-import 'source-map-support/register';
-import * as cdk from 'aws-cdk-lib';
-import { RepresentAwsCdkIntegTestsBugStack } from '../lib/represent-aws-cdk-integ-tests-bug-stack';
+import { App, Stack } from 'aws-cdk-lib';
+import { Queue } from 'aws-cdk-lib/aws-sqs';
+import { ExpectedResult, IntegTest } from '@aws-cdk/integ-tests-alpha';
 
-const app = new cdk.App();
-new RepresentAwsCdkIntegTestsBugStack(app, 'RepresentAwsCdkIntegTestsBugStack', {
-  /* If you don't specify 'env', this stack will be environment-agnostic.
-   * Account/Region-dependent features and context lookups will not work,
-   * but a single synthesized template can be deployed anywhere. */
+const app = new App();
+const stackA = new Stack(app, 'represent-aws-cdk-integ-tests-bug-stack-a');
+const queueA = new Queue(stackA, 'queue-a');
+const stackB = new Stack(app, 'represent-aws-cdk-integ-tests-bug-stack-b');
+const queueB = new Queue(stackB, 'queue-b');
 
-  /* Uncomment the next line to specialize this stack for the AWS Account
-   * and Region that are implied by the current CLI configuration. */
-  // env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+const integ = new IntegTest(app, 'Integ', { testCases: [stackA, stackB] });
 
-  /* Uncomment the next line if you know exactly what Account and Region you
-   * want to deploy the stack to. */
-  // env: { account: '123456789012', region: 'us-east-1' },
+for (const queue of [queueA, queueB]) {
+  const response = integ.assertions.awsApiCall('SQS', 'sendMessage', {
+    QueueUrl: queue.queueUrl,
+    MessageBody: 'foo'
+  });
+  response.provider.addToRolePolicy({
+    Effect: 'Allow',
+    Action: ['sqs:SendMessage'],
+    Resource: [queue.queueArn],
+  });
+  response.expect(ExpectedResult.objectLike({}));
+}
 
-  /* For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html */
-});
+app.synth();
